@@ -14,25 +14,33 @@ TASK_DONE_SIGNAL = None
 # Queue for tasks
 task_queue = queue.Queue()
 
+
 def parse_config(config_file: str) -> dict:
     """Parses a configuration file."""
-    with open(config_file, 'r') as f:
+    with open(config_file, "r") as f:
         config = yaml.safe_load(f)
     return config
+
 
 def reverse_ip(ip: str) -> str:
     """Reverses the byte order of an IP address."""
     address = ipaddress.IPv4Address(ip)
     return str(ipaddress.IPv4Address(address.packed[::-1]))
 
-def dnsbl_metric(address: str, dnsbl: str, extra_labels: Optional[str]='') -> None:
+
+def dnsbl_metric(address: str, dnsbl: str, extra_labels: Optional[str] = "") -> None:
     """Fetches DNSBL metric and prints it."""
-    host = f'{reverse_ip(address)}.{dnsbl}'
+    host = f"{reverse_ip(address)}.{dnsbl}"
     try:
         socket.gethostbyname(host)
-        print(f'dnsbl{{ip="{address}",bl="{dnsbl}",{extra_labels}}} 1' if extra_labels else f'dnsbl{{ip="{address}",bl="{dnsbl}"}} 1')
+        print(
+            f'dnsbl{{ip="{address}",bl="{dnsbl}",{extra_labels}}} 1'
+            if extra_labels
+            else f'dnsbl{{ip="{address}",bl="{dnsbl}"}} 1'
+        )
     finally:
         return
+
 
 def dnsbl_metric_worker() -> None:
     """Worker function to process DNSBL metric tasks."""
@@ -44,46 +52,49 @@ def dnsbl_metric_worker() -> None:
         dnsbl_metric(address, dnsbl, label)
         task_queue.task_done()
 
+
 def format_labels(labels: dict) -> str:
     """Formats labels into a string."""
-    return ','.join([f'{key}="{value}"' for key, value in labels.items()])
+    return ",".join([f'{key}="{value}"' for key, value in labels.items()])
+
 
 def main():
     """Main function."""
-    parser = argparse.ArgumentParser(description='DNSBL exporter')
-    parser.add_argument('--config', required=True, help='Config file')
+    parser = argparse.ArgumentParser(description="DNSBL exporter")
+    parser.add_argument("--config", required=True, help="Config file")
 
     args = parser.parse_args()
     config_file = args.config
-    
+
     config = parse_config(config_file)
 
     # Create worker threads
     threads = []
-    for _ in range(config['worker']):
+    for _ in range(config["worker"]):
         t = threading.Thread(target=dnsbl_metric_worker)
         t.start()
         threads.append(t)
 
     # Add tasks to queue
-    for autonom in config['autonomous']:
-        if not 'network' in autonom or not 'dnsbl' in autonom:
+    for autonom in config["autonomous"]:
+        if not "network" in autonom or not "dnsbl" in autonom:
             continue
-        label = format_labels(autonom['label']) if 'label' in autonom else ''
-        for net in autonom['network']:
+        label = format_labels(autonom["label"]) if "label" in autonom else ""
+        for net in autonom["network"]:
             for address in ipaddress.IPv4Network(net):
-                for dnsbl in autonom['dnsbl']:
+                for dnsbl in autonom["dnsbl"]:
                     task_queue.put([address, dnsbl, label])
 
     task_queue.join()
-    
+
     # Signal worker threads to exit
-    for _ in range(config['worker']):
+    for _ in range(config["worker"]):
         task_queue.put(TASK_DONE_SIGNAL)
 
     # Wait for all worker threads to finish
     for t in threads:
         t.join()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
